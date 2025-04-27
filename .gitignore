@@ -1,2 +1,7 @@
 # IDE and editor files
 .idea/
+
+# Build artifacts
+build
+install
+log
