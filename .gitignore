@@ -2,6 +2,9 @@
 .idea/
 
 # Build artifacts
-build
-install
-log
+dashboard/build
+dashboard/install
+dashboard/log
+raspberry-pi/build
+raspberry-pi/install
+raspberry-pi/log
