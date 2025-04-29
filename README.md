@@ -1,4 +1,4 @@
 # multimodal-sar-robot
 
 ## Topics
-- `camera` for camera
+- `camera` using websockets
