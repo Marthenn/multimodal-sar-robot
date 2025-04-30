@@ -1,5 +1,6 @@
 # IDE and editor files
 .idea/
+.vscode/
 
 # Build artifacts
 build
@@ -11,3 +12,6 @@ dashboard/log
 raspberry-pi/build
 raspberry-pi/install
 raspberry-pi/log
+
+# Cache
+__pycache__/
