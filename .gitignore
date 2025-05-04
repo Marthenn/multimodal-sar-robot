@@ -1,6 +1,7 @@
 # IDE and editor files
 .idea/
 .vscode/
+.ipynb_checkpoints/
 
 # Build artifacts
 build
@@ -12,6 +13,11 @@ dashboard/log
 raspberry-pi/build
 raspberry-pi/install
 raspberry-pi/log
+
+# Raw data
+voice-recognition/data
+voice-recognition/scripts/*.wav
+voice-recognition/scripts/*.aac
 
 # Cache
 __pycache__/
