@@ -9,7 +9,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="MQTT Test Publisher for SAR Robot Sound Direction"
     )
-    parser.add_argument("--host", default="localhost", help="MQTT broker host")
+    parser.add_argument("--host", default="vlg2.local", help="MQTT broker host")
     parser.add_argument("--port", type=int, default=1883, help="MQTT broker port")
     parser.add_argument("--topic", default="sar-robot/sound", help="MQTT topic")
     parser.add_argument(

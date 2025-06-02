@@ -25,7 +25,7 @@ from .mqtt_client import MQTTClient
 # --- Configuration ---
 # Use the URI from your WSVideoClient script
 WEBSOCKET_URI = "ws://localhost:9002"
-MQTT_BROKER_HOST = "localhost"  # Update this to your Raspberry Pi's IP
+MQTT_BROKER_HOST = "vlg2.local"  # Update this to your Raspberry Pi's IP
 MQTT_BROKER_PORT = 1883
 MQTT_SOUND_TOPIC = "sar-robot/sound"
 MQTT_MOVEMENT_TOPIC = "sar-robot/movement"
@@ -371,10 +371,11 @@ class RobotControlGUI(QMainWindow):
         """Send movement command via MQTT."""
         try:
             message = {"command": command, "timestamp": time.time()}
-            self.movement_mqtt_client.client.publish(
+            success = self.movement_mqtt_client.publish(
                 MQTT_MOVEMENT_TOPIC, json.dumps(message)
             )
-            self.append_log_message(f"Sent movement command: {command}")
+            if success:
+                self.append_log_message(f"Sent movement command: {command}")
         except Exception as e:
             self.append_log_message(f"Error sending movement command: {str(e)}")
 
