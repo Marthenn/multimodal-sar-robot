@@ -21,3 +21,4 @@ voice-recognition/scripts/*.aac
 
 # Cache
 __pycache__/
+.venv/
