@@ -26,7 +26,8 @@ DEVICE_INDEX = None  # or use specific index like 2
 current_position = 512
 
 # Queues
-audio_queue = queue.Queue()
+inference_queue = queue.Queue()
+websocket_queue = queue.Queue()
 
 # MQTT Setup
 MQTT_HOST = "vlg2.local"
@@ -93,13 +94,14 @@ def audio_callback(indata, frames, time_info, status):
     if status:
         print(status)
     audio_chunk = indata[:, 0].copy()  # mono
-    audio_queue.put(audio_chunk)
+    inference_queue.put(audio_chunk)
+    websocket_queue.put(audio_chunk)
 
 # Inference Thread
 def inference_loop(model_path):
     buffer = np.array([], dtype=np.float32)
     while True:
-        chunk = audio_queue.get()
+        chunk = inference_queue.get()
         buffer = np.concatenate((buffer, chunk))
         if len(buffer) >= CHUNK_SIZE:
             to_process = buffer[:CHUNK_SIZE]
@@ -121,7 +123,7 @@ async def ws_handler(websocket, path):
 async def ws_broadcaster():
     buffer = np.array([], dtype=np.float32)
     while True:
-        chunk = audio_queue.get()
+        chunk = websocket_queue.get()
         buffer = np.concatenate((buffer, chunk))
         if len(buffer) >= CHUNK_SIZE:
             data = buffer[:CHUNK_SIZE].tobytes()
