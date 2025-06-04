@@ -23,6 +23,7 @@ CHANNELS = 1
 CHUNK_DURATION = 3  # seconds
 CHUNK_SIZE = CHUNK_DURATION * SAMPLE_RATE
 DEVICE_INDEX = None  # or use specific index like 2
+current_position = 512
 
 # Queues
 audio_queue = queue.Queue()
@@ -34,6 +35,26 @@ MQTT_TOPIC = "sar-robot/sound"
 mqtt_client = mqtt.Client()
 mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
 mqtt_client.loop_start()
+
+def convert_position(position: int) -> float:
+    return (1023 - position) / 1023.0 * 300.0
+
+def on_message(client, userdata, msg):
+    global current_position
+    try:
+        if msg.topic == "sar-robot/pan_angle":
+            payload = msg.payload.decode('utf-8')
+            new_position = int(float(payload))
+            # Ensure position is within valid range (0-1023)
+            new_position = max(0, min(1023, new_position))
+            current_position = new_position
+            print(f"[🔄] Updated pan position to {current_position} ({convert_position(current_position):.2f}°)")
+    except Exception as e:
+        print(f"[❌] Error processing pan angle update: {e}")
+
+mqtt_client.on_message = on_message
+mqtt_client.subscribe("sar-robot/pan_angle")
+print("[📡] MQTT client started and subscribed to 'sar-robot/pan_angle'")
 
 # Inference
 def run_inference(audio_data: np.ndarray, model_path: str):
@@ -58,8 +79,10 @@ def run_inference(audio_data: np.ndarray, model_path: str):
     score = float(output_data[0][0])
     label = 1 if score > 0.5 else 0
 
+    curr_position_angle = convert_position(current_position)
+
     message = {
-        "position": "dummy",
+        "position": round(curr_position_angle, 4),
         "human_confidence": round(score, 4)
     }
     mqtt_client.publish(MQTT_TOPIC, json.dumps(message))
