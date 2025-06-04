@@ -51,11 +51,11 @@ class MqttToMicroROS(Node):
         right = 0
 
         if command == "forward":
-            left = LINEAR_SPEED
-            right = LINEAR_SPEED
-        elif command == "backward":
             left = -LINEAR_SPEED
             right = -LINEAR_SPEED
+        elif command == "backward":
+            left = LINEAR_SPEED
+            right = LINEAR_SPEED
         elif command == "left":
             left = -TURN_SPEED
             right = TURN_SPEED
@@ -65,11 +65,11 @@ class MqttToMicroROS(Node):
         elif command == "stop":
             left = 0
             right = 0
-        elif command == "pan_left":
+        elif command == "pan_right":
             current_pan = max(PAN_MIN, current_pan - PAN_STEP)
             self.send_pan(current_pan)
             return
-        elif command == "pan_right":
+        elif command == "pan_left":
             current_pan = min(PAN_MAX, current_pan + PAN_STEP)
             self.send_pan(current_pan)
             return
