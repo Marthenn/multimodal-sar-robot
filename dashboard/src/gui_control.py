@@ -25,7 +25,8 @@ from .map_widget import MapWidget
 
 # --- Configuration ---
 # Use the URI from your WSVideoClient script
-WEBSOCKET_URI = "ws://localhost:9002"
+WEBSOCKET_VIDEO_URI = "ws://192.168.137.62:9002"
+WEBSOCKET_AUDIO_URI = "ws://192.168.137.62:8765"
 MQTT_BROKER_HOST = "vlg2.local"  # Update this to your Raspberry Pi's IP
 MQTT_BROKER_PORT = 1883
 MQTT_SOUND_TOPIC = "sar-robot/sound"
@@ -33,6 +34,85 @@ MQTT_MOVEMENT_TOPIC = "sar-robot/movement"
 MQTT_POSITION_TOPIC = "sar-robot/position"
 RADAR_RESET_TIMEOUT = 5000  # 5 seconds in milliseconds
 
+class AudioWebSocketClientThread(QThread):
+    connection_status = Signal(str)
+    log_message = Signal(str)
+
+    def __init__(self, uri, sample_rate=16000, channels=1):
+        super().__init__()
+        self.uri = uri
+        self.running = True
+        self.websocket = None
+        self.sample_rate = sample_rate
+        self.channels = channels
+        self.audio_stream = None
+
+    def run(self):
+        asyncio.run(self._run_ws())
+
+    async def _run_ws(self):
+        try:
+            self.connection_status.emit("Connecting to audio...")
+            async with websockets.connect(self.uri, max_size=None) as ws:
+                self.websocket = ws
+                self.connection_status.emit("Audio Connected")
+                self.log_message.emit("Audio WebSocket connection established.")
+
+                # Initialize sounddevice for audio output
+                try:
+                    import sounddevice as sd
+                    # Create output stream
+                    self.audio_stream = sd.OutputStream(
+                        samplerate=self.sample_rate,
+                        channels=self.channels,
+                        dtype='float32'
+                    )
+                    self.audio_stream.start()
+                except ImportError:
+                    self.log_message.emit("Sounddevice not installed. Run: pip install sounddevice")
+                    return
+                except Exception as e:
+                    self.log_message.emit(f"Error initializing audio: {e}")
+                    return
+
+                while self.running:
+                    try:
+                        data = await ws.recv()
+                        # Process audio data
+                        audio_data = np.frombuffer(data, dtype=np.float32)
+
+                        # Play audio
+                        try:
+                            # Write directly to stream for lower latency
+                            self.audio_stream.write(audio_data)
+                        except Exception as e:
+                            self.log_message.emit(f"Error playing audio: {e}")
+
+                    except websockets.ConnectionClosed:
+                        self.connection_status.emit("Audio Disconnected")
+                        self.log_message.emit("Audio WebSocket connection closed.")
+                        break
+                    except Exception as e:
+                        self.log_message.emit(f"Error processing audio data: {e}")
+        except Exception as e:
+            self.connection_status.emit("Audio Connection Error")
+            self.log_message.emit(f"Audio WebSocket error: {e}")
+        finally:
+            self._cleanup_audio()
+
+    def _cleanup_audio(self):
+        """Clean up audio resources"""
+        if self.audio_stream:
+            try:
+                self.audio_stream.stop()
+                self.audio_stream.close()
+                self.audio_stream = None
+            except Exception as e:
+                self.log_message.emit(f"Error closing audio stream: {e}")
+
+    def stop(self):
+        """Stop the thread and clean up resources"""
+        self.running = False
 
 # --- WebSocket Communication Thread ---
 class WebSocketClientThread(QThread):
@@ -280,12 +360,20 @@ class RobotControlGUI(QMainWindow):
         self.status_bar.showMessage("Status: Initializing...")
 
         # --- WebSocket Client ---
-        self.ws_client = WebSocketClientThread(WEBSOCKET_URI)
+        self.ws_client = WebSocketClientThread(WEBSOCKET_VIDEO_URI)
         self.ws_client.connection_status.connect(self.update_status_bar)
         self.ws_client.image_received.connect(self.update_video_feed)
         self.ws_client.map_data_received.connect(self.update_map)  # Connect map signal
         self.ws_client.log_message.connect(self.append_log_message)
         self.ws_client.start()  # Start the WebSocket thread
+
+        # --- Audio WebSocket Client ---
+        self.audio_client = AudioWebSocketClientThread(WEBSOCKET_AUDIO_URI)
+        self.audio_client.connection_status.connect(
+            lambda status: self.update_status_bar(f"Audio: {status}")
+        )
+        self.audio_client.log_message.connect(self.append_log_message)
+        self.audio_client.start()  # Start the audio WebSocket thread
 
         # --- MQTT Clients ---
         # Sound direction MQTT client
@@ -483,11 +571,13 @@ class RobotControlGUI(QMainWindow):
         self.sound_mqtt_client.stop()
         self.movement_mqtt_client.stop()
         self.position_mqtt_client.stop()
+        self.audio_client.stop()
 
         self.ws_client.wait(5000)
         self.sound_mqtt_client.wait(5000)
         self.movement_mqtt_client.wait(5000)
         self.position_mqtt_client.wait(5000)
+        self.audio_client.wait(5000)
         super().closeEvent(event)
 
 
