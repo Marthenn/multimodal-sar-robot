@@ -3,6 +3,9 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont
 import math
 
+# Define the input angle that corresponds to visual North (top of the radar)
+INPUT_NORTH_ANGLE_OFFSET = 150.0
+
 
 class RadarWidget(QWidget):
     # Signal emitted when a section's confidence is reset
@@ -14,7 +17,7 @@ class RadarWidget(QWidget):
 
         # Configuration
         self.num_sections = 36  # Changed from 12 to 36
-        self.section_angle = 360 / self.num_sections  # Will be 10 degrees
+        self.section_angle = 360.0 / self.num_sections  # Should be 10.0
         self.reset_timeout = reset_timeout  # milliseconds
 
         # State
@@ -27,20 +30,34 @@ class RadarWidget(QWidget):
             timer.timeout.connect(lambda idx=i: self._reset_section(idx))
 
     def update_section(self, position_degrees, confidence):
-        """Update a section based on the new coordinate system where 150 degrees is North."""
-        # Convert input degrees (150=N, 0 is CCW, 300 is CW from 150N)
-        # to internal degrees (0=N, positive clockwise).
-        # Example: Input 150 (North) -> (150 - 150 + 360) % 360 = 0 (Internal North)
-        # Example: Input 140 (10 deg CCW from North) -> (150 - 140 + 360) % 360 = 10 (Internal 10 deg CW)
-        # Example: Input 0 (150 deg CCW from North) -> (150 - 0 + 360) % 360 = 150 (Internal 150 deg CW)
-        internal_degrees = (150 - position_degrees + 360) % 360
+        """Update a section with new confidence value, considering custom North."""
+        # Normalize the input angle: 0 degrees on the radar GUI is INPUT_NORTH_ANGLE_OFFSET from input data
+        # Angles increase clockwise on the input data according to the new spec.
+        # visual_angle = (input_angle - offset + 360) % 360
+        # Example: input 150 (North) -> (150 - 150 + 360)%360 = 0 (visual North)
+        # Example: input 0 (150 deg CW from North) -> (0 - 150 + 360)%360 = 210 (visual 210 deg CW from North)
+        # The user states: "0 is clockwise, direction to 300 is counterclockwise" relative to 150 being North.
+        # This means input 0 degrees is visually at (0 - 150 + 360)%360 = 210 degrees on our visual radar (0 is top).
+        # And input 300 degrees is visually at (300 - 150 + 360)%360 = 150 degrees on our visual radar.
 
-        section = int(internal_degrees / self.section_angle)
-        section = max(0, min(section, self.num_sections - 1))  # Clamp index
+        visual_angle_degrees = (
+            float(position_degrees) - INPUT_NORTH_ANGLE_OFFSET + 360.0
+        ) % 360.0
 
+        # Determine the section based on the visual angle
+        section = int(visual_angle_degrees / self.section_angle)
+
+        # Clamp section index to be within valid range
+        section = max(0, min(section, self.num_sections - 1))
+
+        # Update confidence
         self.section_confidences[section] = confidence
+
+        # Reset and start timer for this section
         self.section_timers[section].stop()
         self.section_timers[section].start(self.reset_timeout)
+
+        # Trigger repaint
         self.update()
 
     def _reset_section(self, section_idx):
@@ -68,8 +85,9 @@ class RadarWidget(QWidget):
 
         # Draw sections
         for i in range(self.num_sections):
-            # internal_start_angle_deg is 0 for North, increasing clockwise
-            internal_start_angle_deg = i * self.section_angle
+            # visual_start_angle_deg is the start angle for drawing the i-th section
+            # on the GUI, where 0 degrees is at the top (North).
+            visual_start_angle_deg = i * self.section_angle
             confidence = self.section_confidences[i]
 
             if confidence == 0:
@@ -83,29 +101,32 @@ class RadarWidget(QWidget):
             painter.setPen(QPen(Qt.GlobalColor.black, 1))
             painter.setBrush(QBrush(color))
 
-            # Qt's 0 is 3 o'clock, positive CCW. Our internal 0 (North) maps to Qt's 90.
-            qt_start_angle = (90 - internal_start_angle_deg) * 16
-            qt_span_angle = -self.section_angle * 16
+            # Qt's 0 degrees is at 3 o'clock. We need to map our visual_start_angle_deg.
+            # If visual_start_angle_deg = 0 (top), Qt angle is 90.
+            # If visual_start_angle_deg = 90 (right), Qt angle is 0.
+            # Formula: qt_angle = 90 - visual_angle
+            qt_paint_start_angle = (90.0 - visual_start_angle_deg) * 16.0
+            qt_paint_span_angle = (
+                -self.section_angle * 16.0
+            )  # Negative for clockwise span
 
             painter.drawPie(
                 int(center_x - radius),
                 int(center_y - radius),
                 int(radius * 2),
                 int(radius * 2),
-                int(qt_start_angle),
-                int(qt_span_angle),
+                int(qt_paint_start_angle),
+                int(qt_paint_span_angle),
             )
 
             if confidence > 0:
-                # Midpoint for text, using internal angle (0=N, positive CW)
-                mid_internal_angle_rad = math.radians(
-                    internal_start_angle_deg + self.section_angle / 2
-                )
-                text_radius = radius * 0.7
+                # Midpoint of the visual section for text placement
+                visual_mid_angle_deg = visual_start_angle_deg + self.section_angle / 2.0
+                visual_mid_angle_rad = math.radians(visual_mid_angle_deg)
 
-                # Text position: sin for x, cos for y, adjust for 0=N
-                text_x = center_x + text_radius * math.sin(mid_internal_angle_rad)
-                text_y = center_y - text_radius * math.cos(mid_internal_angle_rad)
+                text_radius = radius * 0.7
+                text_x = center_x + text_radius * math.sin(visual_mid_angle_rad)
+                text_y = center_y - text_radius * math.cos(visual_mid_angle_rad)
 
                 painter.setPen(QPen(Qt.GlobalColor.black))
                 # Potentially smaller font if sections are very narrow
