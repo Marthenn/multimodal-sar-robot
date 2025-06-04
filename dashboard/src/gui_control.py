@@ -25,8 +25,8 @@ from .map_widget import MapWidget
 
 # --- Configuration ---
 # Use the URI from your WSVideoClient script
-WEBSOCKET_VIDEO_URI = "ws://192.168.137.62:9002"
-WEBSOCKET_AUDIO_URI = "ws://192.168.137.62:8765"
+WEBSOCKET_VIDEO_URI = "ws://vlg2.local:9002"
+WEBSOCKET_AUDIO_URI = "ws://vlg2.local:8765"
 MQTT_BROKER_HOST = "vlg2.local"  # Update this to your Raspberry Pi's IP
 MQTT_BROKER_PORT = 1883
 MQTT_SOUND_TOPIC = "sar-robot/sound"
@@ -61,15 +61,25 @@ class AudioWebSocketClientThread(QThread):
                 # Initialize sounddevice for audio output
                 try:
                     import sounddevice as sd
+
+                    device_info = sd.query_devices(kind='output')
+                    self.log_message.emit(f"Using audio device: {device_info['name']}")
+                    device_rate = int(device_info['default_samplerate'])
+                    self.log_message.emit(f"Default sample rate: {device_rate}")
+
                     # Create output stream
                     self.audio_stream = sd.OutputStream(
-                        samplerate=self.sample_rate,
+                        samplerate=device_rate,
                         channels=self.channels,
                         dtype='float32'
                     )
                     self.audio_stream.start()
+
+                    import resampy
+                    need_resample = device_rate != self.sample_rate
+
                 except ImportError:
-                    self.log_message.emit("Sounddevice not installed. Run: pip install sounddevice")
+                    self.log_message.emit("Sounddevice or resampy not installed. Run: pip install sounddevice resampy")
                     return
                 except Exception as e:
                     self.log_message.emit(f"Error initializing audio: {e}")
@@ -80,6 +90,13 @@ class AudioWebSocketClientThread(QThread):
                         data = await ws.recv()
                         # Process audio data
                         audio_data = np.frombuffer(data, dtype=np.float32)
+
+                        if need_resample:
+                            audio_data = resampy.resample(
+                                audio_data,
+                                self.sample_rate,
+                                device_rate
+                            )
 
                         # Play audio
                         try:
