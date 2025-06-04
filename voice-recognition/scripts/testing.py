@@ -57,21 +57,24 @@ def predict_with_tflite(filepath, model_path):
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 
+    print("Input dtype:", input_details[0]['dtype'])
+    print("Output dtype:", output_details[0]['dtype'])
+
     interpreter.set_tensor(input_details[0]['index'], input_data)
+
     start_time = time.time()
     interpreter.invoke()
     end_time = time.time()
-    inference_time = end_time - start_time
 
     output_data = interpreter.get_tensor(output_details[0]['index'])
-    # Dequantize result manually
-    scale, zero_point = output_details[0]['quantization']
-    score = scale * (output_data[0][0] - zero_point)
+
+    score = float(output_data[0][0])
     label = 1 if score > 0.5 else 0
 
     print(f"Raw score: {score:.4f}")
     print("Predicted label:", "Human" if label == 1 else "Non-human")
-    print(f"[⏱️ inference time] {inference_time:.3f} seconds")
+    print(f"[⏱️ inference time] {end_time - start_time:.3f} seconds")
     return score, label
 
-predict_with_tflite("20250412_130928.wav", "../models/model_quantized.tflite")
+# Panggil dengan model baru
+predict_with_tflite("voice_204890.wav", "../models/model.tflite")

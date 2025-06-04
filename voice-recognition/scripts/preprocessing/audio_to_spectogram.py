@@ -57,6 +57,8 @@ def process_directory(label):
         if filename.endswith('.wav'):
             input_path = os.path.join(input_folder, filename)
             output_path = os.path.join(output_folder, filename.replace('.wav', '.npy'))
+            if os.path.exists(output_path):
+                continue
 
             spectrogram = convert_to_spectrogram(input_path, TARGET_SIZE)
 
