@@ -27,23 +27,20 @@ class RadarWidget(QWidget):
             timer.timeout.connect(lambda idx=i: self._reset_section(idx))
 
     def update_section(self, position_degrees, confidence):
-        """Update a section with new confidence value."""
-        # Calculate which section this position corresponds to
-        # Ensure position_degrees is handled correctly, e.g., always positive
-        normalized_degrees = position_degrees % 360
-        section = int(normalized_degrees / self.section_angle)
+        """Update a section based on the new coordinate system where 150 degrees is North."""
+        # Convert input degrees (150=N, 0 is CCW, 300 is CW from 150N)
+        # to internal degrees (0=N, positive clockwise).
+        # Example: Input 150 (North) -> (150 - 150 + 360) % 360 = 0 (Internal North)
+        # Example: Input 140 (10 deg CCW from North) -> (150 - 140 + 360) % 360 = 10 (Internal 10 deg CW)
+        # Example: Input 0 (150 deg CCW from North) -> (150 - 0 + 360) % 360 = 150 (Internal 150 deg CW)
+        internal_degrees = (150 - position_degrees + 360) % 360
 
-        # Clamp section index to be within valid range, just in case of floating point issues
-        section = max(0, min(section, self.num_sections - 1))
+        section = int(internal_degrees / self.section_angle)
+        section = max(0, min(section, self.num_sections - 1))  # Clamp index
 
-        # Update confidence
         self.section_confidences[section] = confidence
-
-        # Reset and start timer for this section
         self.section_timers[section].stop()
         self.section_timers[section].start(self.reset_timeout)
-
-        # Trigger repaint
         self.update()
 
     def _reset_section(self, section_idx):
@@ -71,9 +68,8 @@ class RadarWidget(QWidget):
 
         # Draw sections
         for i in range(self.num_sections):
-            start_angle_deg = (
-                i * self.section_angle
-            )  # Start angle in degrees for math calculations
+            # internal_start_angle_deg is 0 for North, increasing clockwise
+            internal_start_angle_deg = i * self.section_angle
             confidence = self.section_confidences[i]
 
             if confidence == 0:
@@ -87,11 +83,9 @@ class RadarWidget(QWidget):
             painter.setPen(QPen(Qt.GlobalColor.black, 1))
             painter.setBrush(QBrush(color))
 
-            # Qt's drawPie uses 1/16th of a degree. Angle 0 is at 3 o'clock.
-            # We want 0 degrees to be at the top (North).
-            # So, map our 0 degrees (North) to Qt's 90 degrees.
-            qt_start_angle = (90 - start_angle_deg) * 16
-            qt_span_angle = -self.section_angle * 16  # Negative for clockwise span
+            # Qt's 0 is 3 o'clock, positive CCW. Our internal 0 (North) maps to Qt's 90.
+            qt_start_angle = (90 - internal_start_angle_deg) * 16
+            qt_span_angle = -self.section_angle * 16
 
             painter.drawPie(
                 int(center_x - radius),
@@ -103,13 +97,15 @@ class RadarWidget(QWidget):
             )
 
             if confidence > 0:
-                # Calculate midpoint of the section for text placement
-                mid_angle_rad = math.radians(start_angle_deg + self.section_angle / 2)
+                # Midpoint for text, using internal angle (0=N, positive CW)
+                mid_internal_angle_rad = math.radians(
+                    internal_start_angle_deg + self.section_angle / 2
+                )
                 text_radius = radius * 0.7
 
-                # Adjust text position so 0 degrees is at the top
-                text_x = center_x + text_radius * math.sin(mid_angle_rad)
-                text_y = center_y - text_radius * math.cos(mid_angle_rad)
+                # Text position: sin for x, cos for y, adjust for 0=N
+                text_x = center_x + text_radius * math.sin(mid_internal_angle_rad)
+                text_y = center_y - text_radius * math.cos(mid_internal_angle_rad)
 
                 painter.setPen(QPen(Qt.GlobalColor.black))
                 # Potentially smaller font if sections are very narrow
