@@ -92,7 +92,7 @@ class MqttToMicroROS(Node):
     def send_pan(self, angle):
         msg = Int32()
         msg.data = angle
-        self.pan_pub.publish(msg
+        self.pan_pub.publish(msg)
 
         try:
             self.mqtt_client.publish(MQTT_TOPIC_PAN, str(angle))
