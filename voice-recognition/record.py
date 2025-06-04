@@ -106,7 +106,11 @@ async def ws_broadcaster():
             if connected_clients:
                 await asyncio.gather(*[client.send(data) for client in connected_clients])
 
-# Start everything
+async def start_websocket_server():
+    print("[🌐] Starting WebSocket server...")
+    async with websockets.serve(ws_handler, "0.0.0.0", 8765):
+        await ws_broadcaster()  # this will run forever
+
 def main():
     model_path = "../models/model.tflite"
 
@@ -120,12 +124,7 @@ def main():
 
     threading.Thread(target=inference_loop, args=(model_path,), daemon=True).start()
 
-    print("[🌐] Starting WebSocket server...")
-    loop = asyncio.get_event_loop()
-    ws_server = websockets.serve(ws_handler, "0.0.0.0", 8765)
-    loop.run_until_complete(ws_server)
-    loop.create_task(ws_broadcaster())
-    loop.run_forever()
+    asyncio.run(start_websocket_server())
 
 if __name__ == "__main__":
     main()
