@@ -6,6 +6,7 @@ import paho.mqtt.client as mqtt
 MQTT_BROKER = "vlg2.local"
 MQTT_PORT = 1883
 MQTT_TOPIC = "sar-robot/control"
+MQTT_TOPIC_PAN = "sar-robot/pan_angle"
 
 PAN_STEP = 32
 PAN_MIN = 0
@@ -91,8 +92,13 @@ class MqttToMicroROS(Node):
     def send_pan(self, angle):
         msg = Int32()
         msg.data = angle
-        self.pan_pub.publish(msg)
-        self.get_logger().info(f"Published pan: {angle}°")
+        self.pan_pub.publish(msg
+
+        try:
+            self.mqtt_client.publish(MQTT_TOPIC_PAN, str(angle))
+            self.get_logger().info(f"Published pan angle: {angle}")
+        except Exception as e:
+            self.get_logger().error(f"Failed to publish pan angle: {e}")
 
 def main():
     rclpy.init()
