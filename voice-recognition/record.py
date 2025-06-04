@@ -111,7 +111,7 @@ def inference_loop(model_path):
 # WebSocket Streamer
 connected_clients = set()
 
-async def ws_handler(websocket, path):
+async def ws_handler(websocket, path=None):
     connected_clients.add(websocket)
     print(f"[🌐] New WebSocket client connected.")
     try:
