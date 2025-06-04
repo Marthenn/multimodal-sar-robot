@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import Qt, QTimer, Signal, Property
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont
 import math
 
@@ -13,8 +13,8 @@ class RadarWidget(QWidget):
         self.setMinimumSize(320, 320)  # Minimum size to ensure visibility
 
         # Configuration
-        self.num_sections = 12
-        self.section_angle = 360 / self.num_sections
+        self.num_sections = 36  # Changed from 12 to 36
+        self.section_angle = 360 / self.num_sections  # Will be 10 degrees
         self.reset_timeout = reset_timeout  # milliseconds
 
         # State
@@ -29,7 +29,12 @@ class RadarWidget(QWidget):
     def update_section(self, position_degrees, confidence):
         """Update a section with new confidence value."""
         # Calculate which section this position corresponds to
-        section = int((position_degrees % 360) / self.section_angle)
+        # Ensure position_degrees is handled correctly, e.g., always positive
+        normalized_degrees = position_degrees % 360
+        section = int(normalized_degrees / self.section_angle)
+
+        # Clamp section index to be within valid range, just in case of floating point issues
+        section = max(0, min(section, self.num_sections - 1))
 
         # Update confidence
         self.section_confidences[section] = confidence
@@ -50,7 +55,6 @@ class RadarWidget(QWidget):
     def set_reset_timeout(self, milliseconds):
         """Set the timeout duration for resetting sections."""
         self.reset_timeout = milliseconds
-        # Update all active timers
         for timer in self.section_timers:
             if timer.isActive():
                 timer.setInterval(milliseconds)
@@ -59,7 +63,6 @@ class RadarWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Calculate center and radius
         width = self.width()
         height = self.height()
         center_x = width / 2
@@ -68,46 +71,59 @@ class RadarWidget(QWidget):
 
         # Draw sections
         for i in range(self.num_sections):
-            start_angle = i * self.section_angle
+            start_angle_deg = (
+                i * self.section_angle
+            )  # Start angle in degrees for math calculations
             confidence = self.section_confidences[i]
 
-            # Calculate color based on confidence
             if confidence == 0:
-                color = QColor(200, 200, 200)  # Light gray for no detection
+                color = QColor(200, 200, 200)  # Light gray
             else:
-                # Scale from light red to dark red based on confidence
-                red_value = int(255 - (confidence * 155))  # 255 to 100
+                red_value = int(
+                    255 - (confidence * 155)
+                )  # 255 (light red) to 100 (darker red)
                 color = QColor(255, red_value, red_value)
 
-            # Draw section
             painter.setPen(QPen(Qt.GlobalColor.black, 1))
             painter.setBrush(QBrush(color))
 
-            # Convert angles to Qt's coordinate system (16th of degrees, clockwise from 3 o'clock)
-            start_angle_qt = (90 - start_angle) * 16  # Rotate so 0° is at top
+            # Qt's drawPie uses 1/16th of a degree. Angle 0 is at 3 o'clock.
+            # We want 0 degrees to be at the top (North).
+            # So, map our 0 degrees (North) to Qt's 90 degrees.
+            qt_start_angle = (90 - start_angle_deg) * 16
+            qt_span_angle = -self.section_angle * 16  # Negative for clockwise span
+
             painter.drawPie(
                 int(center_x - radius),
                 int(center_y - radius),
                 int(radius * 2),
                 int(radius * 2),
-                int(start_angle_qt),
-                int(-self.section_angle * 16),  # Negative for clockwise
+                int(qt_start_angle),
+                int(qt_span_angle),
             )
 
-            # Draw confidence value if > 0
             if confidence > 0:
-                angle_rad = math.radians(start_angle + self.section_angle / 2)
-                text_radius = radius * 0.7  # Position text at 70% of radius
-                text_x = center_x + text_radius * math.sin(angle_rad)
-                text_y = center_y - text_radius * math.cos(angle_rad)
+                # Calculate midpoint of the section for text placement
+                mid_angle_rad = math.radians(start_angle_deg + self.section_angle / 2)
+                text_radius = radius * 0.7
+
+                # Adjust text position so 0 degrees is at the top
+                text_x = center_x + text_radius * math.sin(mid_angle_rad)
+                text_y = center_y - text_radius * math.cos(mid_angle_rad)
 
                 painter.setPen(QPen(Qt.GlobalColor.black))
-                painter.setFont(QFont("Arial", 8))
+                # Potentially smaller font if sections are very narrow
+                font_size = 7 if self.num_sections > 24 else 8
+                painter.setFont(QFont("Arial", font_size))
+
+                # Adjust text box size if needed, though it might be tight for 10-degree sections
+                text_rect_width = 30
+                text_rect_height = 15
                 painter.drawText(
-                    int(text_x - 20),
-                    int(text_y - 10),
-                    40,  # width
-                    20,  # height
+                    int(text_x - text_rect_width / 2),
+                    int(text_y - text_rect_height / 2),
+                    text_rect_width,
+                    text_rect_height,
                     Qt.AlignmentFlag.AlignCenter,
                     f"{confidence:.2f}",
                 )

@@ -21,6 +21,7 @@ from PySide6.QtCore import Qt, QThread, Signal, Slot
 
 from .radar_widget import RadarWidget
 from .mqtt_client import MQTTClient
+from .map_widget import MapWidget
 
 # --- Configuration ---
 # Use the URI from your WSVideoClient script
@@ -29,6 +30,7 @@ MQTT_BROKER_HOST = "vlg2.local"  # Update this to your Raspberry Pi's IP
 MQTT_BROKER_PORT = 1883
 MQTT_SOUND_TOPIC = "sar-robot/sound"
 MQTT_MOVEMENT_TOPIC = "sar-robot/movement"
+MQTT_POSITION_TOPIC = "sar-robot/position"
 RADAR_RESET_TIMEOUT = 5000  # 5 seconds in milliseconds
 
 
@@ -218,24 +220,54 @@ class RobotControlGUI(QMainWindow):
         control_layout.addWidget(log_container)
 
         # --- Right Panel: Visualizations ---
-        vis_panel = QWidget()
-        vis_layout = QVBoxLayout(vis_panel)
+        vis_panel = QWidget()  # Main container for all visualizations
+        main_vis_layout = QHBoxLayout(
+            vis_panel
+        )  # Main layout for vis_panel will be horizontal
+
+        # --- Left Visualization Column (Camera + Radar) ---
+        left_vis_column_widget = QWidget()
+        left_vis_layout = QVBoxLayout(left_vis_column_widget)
+        left_vis_layout.setContentsMargins(
+            0, 0, 0, 0
+        )  # No margins for the inner layout
 
         # Video Feed Display
         self.video_label = QLabel("Video Feed")
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setFrameShape(QFrame.Shape.Box)
         self.video_label.setStyleSheet("background-color: black; color: grey;")
-        self.video_label.setMinimumSize(320, 240)  # Minimum size
+        self.video_label.setMinimumSize(320, 240)
 
         # Radar Widget
         self.radar_widget = RadarWidget(reset_timeout=RADAR_RESET_TIMEOUT)
         self.radar_widget.section_reset.connect(self._on_radar_section_reset)
+        self.radar_widget.setMinimumSize(320, 320)  # Match MapWidget's minimum
 
-        vis_layout.addWidget(QLabel("Camera Feed:"))
-        vis_layout.addWidget(self.video_label, stretch=1)  # Allow video to expand
-        vis_layout.addWidget(QLabel("Human Direction Radar:"))
-        vis_layout.addWidget(self.radar_widget, stretch=1)
+        left_vis_layout.addWidget(QLabel("Camera Feed:"))
+        left_vis_layout.addWidget(self.video_label, stretch=1)
+        left_vis_layout.addWidget(QLabel("Human Direction Radar:"))
+        left_vis_layout.addWidget(self.radar_widget, stretch=1)
+
+        # --- Right Visualization Column (Map) ---
+        right_vis_column_widget = QWidget()
+        right_vis_layout = QVBoxLayout(right_vis_column_widget)
+        right_vis_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Map Widget
+        self.map_widget = MapWidget()
+        # self.map_widget.setMinimumSize(320,320) # Already set in MapWidget constructor
+
+        right_vis_layout.addWidget(QLabel("Position Map:"))
+        right_vis_layout.addWidget(self.map_widget, stretch=1)
+
+        # Add columns to the main visualization layout
+        main_vis_layout.addWidget(
+            left_vis_column_widget, stretch=1
+        )  # Left column takes 1 part
+        main_vis_layout.addWidget(
+            right_vis_column_widget, stretch=1
+        )  # Right column takes 1 part
 
         # --- Add Panels to Main Layout ---
         main_layout.addWidget(control_panel)
@@ -286,6 +318,22 @@ class RobotControlGUI(QMainWindow):
         )
         self.movement_mqtt_client.error_occurred.connect(self.append_log_message)
         self.movement_mqtt_client.start()
+
+        # Position MQTT client (New)
+        self.position_mqtt_client = MQTTClient(
+            broker_host=MQTT_BROKER_HOST,
+            broker_port=MQTT_BROKER_PORT,
+            topic=MQTT_POSITION_TOPIC,
+        )
+        self.position_mqtt_client.connected.connect(
+            lambda: self.append_log_message("Position MQTT Connected")
+        )
+        self.position_mqtt_client.disconnected.connect(
+            lambda: self.append_log_message("Position MQTT Disconnected")
+        )
+        self.position_mqtt_client.error_occurred.connect(self.append_log_message)
+        self.position_mqtt_client.message_received.connect(self._on_position_message)
+        self.position_mqtt_client.start()
 
         # --- Connect Button Signals ---
         self.btn_forward.clicked.connect(lambda: self.send_robot_command("forward"))
@@ -363,8 +411,57 @@ class RobotControlGUI(QMainWindow):
     @Slot(int)
     def _on_radar_section_reset(self, section_idx):
         """Handle radar section reset."""
-        angle = section_idx * (360 / 12)
-        self.append_log_message(f"Reset section at {angle}°")
+        # Calculate angle based on the radar widget's current configuration
+        if self.radar_widget.num_sections > 0:
+            angle = section_idx * self.radar_widget.section_angle
+            self.append_log_message(f"Radar section at ~{angle:.0f}° reset")
+        else:
+            self.append_log_message(
+                f"Radar section {section_idx} reset (angle calculation error)"
+            )
+
+    @Slot(dict)
+    def _on_position_message(self, data):
+        """Handle incoming MQTT position messages for beacons."""
+        try:
+            if not isinstance(data, dict):
+                self.append_log_message(
+                    f"Invalid position data type: expected dict, got {type(data)}"
+                )
+                return
+
+            for beacon_id, coords in data.items():
+                if isinstance(coords, dict):
+                    x = coords.get("x")
+                    y = coords.get("y")
+
+                    if x is not None and y is not None:
+                        try:
+                            pos_x = float(x)
+                            pos_y = float(y)
+                            self.map_widget.update_beacon_position(
+                                beacon_id, pos_x, pos_y
+                            )
+                            self.append_log_message(
+                                f"Updated {beacon_id} position: ({pos_x:.2f}, {pos_y:.2f})"
+                            )
+                        except ValueError:
+                            self.append_log_message(
+                                f"Invalid coordinate values for {beacon_id}: x={x}, y={y}"
+                            )
+                    else:
+                        self.append_log_message(
+                            f"Missing x or y for {beacon_id} in data: {coords}"
+                        )
+                else:
+                    self.append_log_message(
+                        f"Invalid coordinate structure for {beacon_id}: {coords}"
+                    )
+
+        except Exception as e:
+            self.append_log_message(
+                f"Error processing position message: {str(e)} - Data: {data}"
+            )
 
     # --- Action Methods ---
     def send_robot_command(self, command):
@@ -385,9 +482,12 @@ class RobotControlGUI(QMainWindow):
         self.ws_client.stop()
         self.sound_mqtt_client.stop()
         self.movement_mqtt_client.stop()
+        self.position_mqtt_client.stop()
+
         self.ws_client.wait(5000)
         self.sound_mqtt_client.wait(5000)
         self.movement_mqtt_client.wait(5000)
+        self.position_mqtt_client.wait(5000)
         super().closeEvent(event)
 
 
