@@ -27,7 +27,7 @@ current_position = 512
 
 # Queues
 inference_queue = queue.Queue()
-websocket_queue = queue.Queue()
+broadcast_queue = queue.Queue()
 
 # MQTT Setup
 MQTT_HOST = "vlg2.local"
@@ -95,7 +95,7 @@ def audio_callback(indata, frames, time_info, status):
         print(status)
     audio_chunk = indata[:, 0].copy()  # mono
     inference_queue.put(audio_chunk)
-    websocket_queue.put(audio_chunk)
+    broadcast_queue.put(audio_chunk)
 
 # Inference Thread
 def inference_loop(model_path):
@@ -123,13 +123,18 @@ async def ws_handler(websocket, path):
 async def ws_broadcaster():
     buffer = np.array([], dtype=np.float32)
     while True:
-        chunk = websocket_queue.get()
+        try:
+            chunk = broadcast_queue.get_nowait()
+        except queue.Empty:
+            await asyncio.sleep(0.001)
+            continue
         buffer = np.concatenate((buffer, chunk))
         if len(buffer) >= CHUNK_SIZE:
             data = buffer[:CHUNK_SIZE].tobytes()
             buffer = buffer[CHUNK_SIZE:]
             if connected_clients:
                 await asyncio.gather(*[client.send(data) for client in connected_clients])
+
 
 async def start_websocket_server():
     print("[🌐] Starting WebSocket server...")
